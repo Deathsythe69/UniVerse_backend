@@ -1,5 +1,5 @@
 const express = require("express");
-const Story = require("models/Story");
+const Story = require("../models/story");
 const authMiddleware = require("../middleware/authMiddleware");
 
 const router = express.Router();
@@ -23,11 +23,15 @@ router.post("/", authMiddleware, async (req, res) => {
   }
 });
 
-router.get("/", async (req, res) => {
-  const stories = await Story.find({ expiresAt: { $gt: new Date() } })
-    .populate("user", "name");
+router.get("/", authMiddleware, async (req, res) => {
+  try {
+    const stories = await Story.find({ expiresAt: { $gt: new Date() } })
+      .populate("user", "name");
 
-  res.json(stories);
+    res.json(stories);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
 module.exports = router;

@@ -27,7 +27,7 @@ router.post("/", authMiddleware, roleMiddleware(["student"]), async (req, res) =
 
 
 // 2️⃣ Get Approved Posts (Public Feed)
-router.get("/", async (req, res) => {
+router.get("/", authMiddleware, async (req, res) => {
   try {
     const posts = await Post.find({ isApproved: true })
       .populate("user", "name");
@@ -61,6 +61,58 @@ router.put("/approve/:id",
   }
 );
 
+// 3.1️⃣ Get Pending Posts (Moderator/Supervisor only)
+router.get("/pending",
+  authMiddleware,
+  roleMiddleware(["moderator", "supervisor"]),
+  async (req, res) => {
+    try {
+      const posts = await Post.find({ isApproved: false })
+        .populate("user", "name");
+      res.json(posts);
+    } catch (error) {
+      res.status(500).json({ message: error.message });
+    }
+  }
+);
+
+// 3.2️⃣ Get Reported Posts (Moderator/Supervisor only)
+router.get("/reported",
+  authMiddleware,
+  roleMiddleware(["moderator", "supervisor"]),
+  async (req, res) => {
+    try {
+      const posts = await Post.find({ "reports.0": { $exists: true } })
+        .populate("user", "name")
+        .populate("reports", "name");
+      res.json(posts);
+    } catch (error) {
+      res.status(500).json({ message: error.message });
+    }
+  }
+);
+
+// 3.3️⃣ Dismiss Reports on Post (Moderator/Supervisor only)
+router.put("/dismiss-reports/:id",
+  authMiddleware,
+  roleMiddleware(["moderator", "supervisor"]),
+  async (req, res) => {
+    try {
+      const post = await Post.findById(req.params.id);
+
+      if (!post) return res.status(404).json({ message: "Post not found" });
+
+      post.reports = [];
+      await post.save();
+
+      res.json({ message: "Reports dismissed." });
+
+    } catch (error) {
+      res.status(500).json({ message: error.message });
+    }
+  }
+);
+
 
 // 4️⃣ Reject/Delete Post (Moderator or Supervisor)
 router.delete("/:id",
@@ -86,7 +138,8 @@ router.put("/like/:id", authMiddleware, async (req, res) => {
 
     const userId = req.user.id;
 
-    const alreadyLiked = post.likes.includes(userId);
+    // Fix: Convert ObjectIds to strings for correct comparison
+    const alreadyLiked = post.likes.map(id => id.toString()).includes(userId);
 
     if (alreadyLiked) {
       // Unlike
@@ -112,6 +165,10 @@ router.post("/comment/:id", authMiddleware, async (req, res) => {
   try {
     const { text } = req.body;
 
+    if (!text || text.trim() === "") {
+        return res.status(400).json({ message: "Comment text cannot be empty" });
+    }
+
     const post = await Post.findById(req.params.id);
 
     if (!post) return res.status(404).json({ message: "Post not found" });
@@ -135,7 +192,8 @@ router.put("/report/:id", authMiddleware, roleMiddleware(["student"]), async (re
 
     if (!post) return res.status(404).json({ message: "Post not found" });
 
-    if (!post.reports.includes(req.user.id)) {
+    // Fix: Convert ObjectIds to strings for accurate includes comparison
+    if (!post.reports.map(id => id.toString()).includes(req.user.id)) {
       post.reports.push(req.user.id);
       await post.save();
     }
