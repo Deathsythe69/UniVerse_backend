@@ -19,6 +19,11 @@ router.post("/conversation", authMiddleware, async (req, res) => {
       const receiver = await User.findById(receiverId);
       const sender = await User.findById(senderId);
       
+      // Block System
+      if (receiver.blockedUsers && receiver.blockedUsers.includes(senderId)) {
+        return res.status(403).json({ message: "Cannot message. This user has blocked you." });
+      }
+      
       const isMutual = receiver.following.includes(senderId) && sender.following.includes(receiverId);
       
       conversation = new Conversation({
@@ -26,6 +31,12 @@ router.post("/conversation", authMiddleware, async (req, res) => {
         isRequest: !isMutual
       });
       await conversation.save();
+    } else {
+      // Re-check block logic if convo exists
+      const receiver = await User.findById(receiverId);
+      if (receiver.blockedUsers && receiver.blockedUsers.includes(senderId)) {
+        return res.status(403).json({ message: "Cannot message. This user has blocked you." });
+      }
     }
 
     res.json(conversation);
@@ -67,7 +78,8 @@ router.post("/", authMiddleware, async (req, res) => {
     const message = new Message({
       conversationId,
       sender: req.user.id,
-      text
+      text,
+      status: "delivered" // Socket handles real-time delivery
     });
     
     await message.save();
@@ -77,6 +89,23 @@ router.post("/", authMiddleware, async (req, res) => {
     });
 
     res.json(message);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Mark messages as seen
+router.put("/seen/:conversationId", authMiddleware, async (req, res) => {
+  try {
+    await Message.updateMany(
+      { conversationId: req.params.conversationId, sender: { $ne: req.user.id }, status: { $ne: "seen" } },
+      { $set: { status: "seen", read: true } }
+    );
+    await Conversation.findOneAndUpdate(
+      { _id: req.params.conversationId, "lastMessage.sender": { $ne: req.user.id } },
+      { $set: { "lastMessage.seen": true } }
+    );
+    res.json({ message: "Messages marked as seen" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

@@ -2,6 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const PendingUser = require("../models/PendingUser");
 const crypto = require("crypto");
 const sendEmail = require("../utils/sendEmail");
 const authMiddleware = require("../middleware/authMiddleware");
@@ -35,16 +36,40 @@ router.post("/register", async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes
 
-    const user = new User({
-      name,
-      email,
-      password: hashedPassword
-    });
+    // Check if there's already a pending user
+    let pendingUser = await PendingUser.findOne({ email });
+    if (pendingUser) {
+      pendingUser.name = name;
+      pendingUser.password = hashedPassword;
+      pendingUser.otp = otp;
+      pendingUser.otpExpiry = otpExpiry;
+      await pendingUser.save();
+    } else {
+      pendingUser = new PendingUser({
+        name,
+        email,
+        password: hashedPassword,
+        otp,
+        otpExpiry
+      });
+      await pendingUser.save();
+    }
 
-    await user.save();
+    // Send OTP email
+    try {
+      await sendEmail({
+        email: pendingUser.email,
+        subject: "Verify Your Email - UniVerse",
+        message: `Your One-Time Password (OTP) for UniVerse registration is: ${otp}\nThis OTP is valid for 10 minutes.`
+      });
+    } catch(err) {
+      console.log("OTP Email failed", err);
+    }
 
-    res.json({ message: "User registered successfully" });
+    res.json({ message: "Verification OTP sent. Please check email to complete registration." });
 
   } catch (error) {
   console.log(error);
@@ -61,6 +86,10 @@ router.post("/login", async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    if (user.isBlacklisted) {
+      return res.status(403).json({ message: "Your account has been suspended." });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
@@ -107,6 +136,10 @@ router.post("/google", async (req, res) => {
       });
       await user.save();
     }
+
+    if (user.isBlacklisted) {
+      return res.status(403).json({ message: "Your account has been suspended." });
+    }
     
     const token = jwt.sign(
       { id: user._id, role: user.role },
@@ -124,8 +157,36 @@ router.post("/google", async (req, res) => {
   }
 });
 
-// VERIFY EMAIL OTP (Deprecated)
-// We have reverted the OTP requirement to facilitate easy local testing.
+// VERIFY EMAIL OTP
+router.post("/verify-otp", async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    
+    const pendingUser = await PendingUser.findOne({ email });
+    if (!pendingUser) return res.status(400).json({ message: "No pending registration found or OTP expired" });
+
+    if (pendingUser.otp !== otp || pendingUser.otpExpiry < Date.now()) {
+      return res.status(400).json({ message: "Invalid or expired OTP" });
+    }
+
+    // OTP fits, create the real user now!
+    const user = new User({
+      name: pendingUser.name,
+      email: pendingUser.email,
+      password: pendingUser.password,
+      isEmailVerified: true
+    });
+    
+    await user.save();
+
+    // Remove from pending collection
+    await PendingUser.deleteOne({ email });
+
+    res.json({ message: "Email successfully verified. You can now login, user created." });
+  } catch(error) {
+    res.status(500).json({ message: error.message });
+  }
+});
 
 // FORGOT PASSWORD
 router.post("/forgot-password", async (req, res) => {
@@ -193,16 +254,30 @@ router.get("/profile", authMiddleware, async (req, res) => {
   }
 });
 
+// SET UP MULTER FOR PROFILE PICTURE
+const multer = require("multer");
+const path = require("path");
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, "uploads/"),
+  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
+});
+const upload = multer({ storage });
+
 // UPDATE PROFILE
-router.put("/profile", authMiddleware, async (req, res) => {
+router.put("/profile", authMiddleware, upload.single("avatar"), async (req, res) => {
   try {
-    const { name, bio, avatar } = req.body;
+    const { name, bio } = req.body;
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
     if (name) user.name = name;
     if (bio !== undefined) user.bio = bio;
-    if (avatar !== undefined) user.avatar = avatar;
+    
+    if (req.file) {
+      user.avatar = `/uploads/${req.file.filename}`;
+    } else if (req.body.avatar) {
+      user.avatar = req.body.avatar; // Keep fallback if a url is sent directly
+    }
 
     await user.save();
     

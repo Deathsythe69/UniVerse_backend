@@ -29,6 +29,7 @@ const userSchema = new mongoose.Schema({
   },
   followers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   following: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   googleId: {
     type: String,
     default: null
@@ -52,6 +53,10 @@ const userSchema = new mongoose.Schema({
   resetPasswordExpiry: {
     type: Date,
     default: null
+  },
+  isBlacklisted: {
+    type: Boolean,
+    default: false
   }
 }, { timestamps: true });
 

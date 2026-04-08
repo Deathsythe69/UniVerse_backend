@@ -18,14 +18,13 @@ const router = express.Router();
 // Actually the prompt said "anyone can post without any approval". I should remove roleMiddleware(["student"]) to allow anyone to post.
 router.post("/", authMiddleware, upload.single("image"), async (req, res) => {
   try {
-    const { content, repostOf } = req.body;
+    const { content } = req.body;
     let imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
     const newPost = new Post({
       user: req.user.id,
       content: content || "",
       image: imageUrl,
-      repostOf: repostOf || null,
       isApproved: true // Ensure it's approved by default here too
     });
 
@@ -46,7 +45,8 @@ router.get("/leaderboard", authMiddleware, async (req, res) => {
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
     
     const posts = await Post.find({ isApproved: true, createdAt: { $gte: oneWeekAgo } })
-      .populate("user", "name avatar role");
+      .populate("user", "name avatar role")
+      .populate("comments.user", "name avatar");
     
     const userHighestLikes = {};
     posts.forEach(p => {
@@ -80,10 +80,7 @@ router.get("/search", authMiddleware, async (req, res) => {
       content: { $regex: q, $options: "i" } // Case-insensitive search on content
     })
       .populate("user", "name avatar")
-      .populate({
-        path: "repostOf",
-        populate: { path: "user", select: "name avatar" }
-      })
+      .populate("comments.user", "name avatar")
       .sort({ createdAt: -1 });
 
     res.json(posts);
@@ -97,10 +94,7 @@ router.get("/", authMiddleware, async (req, res) => {
   try {
     const posts = await Post.find({ isApproved: true })
       .populate("user", "name avatar")
-      .populate({
-        path: "repostOf",
-        populate: { path: "user", select: "name avatar" }
-      })
+      .populate("comments.user", "name avatar")
       .sort({ createdAt: -1 });
 
     res.json(posts);
@@ -115,10 +109,7 @@ router.get("/:id", authMiddleware, async (req, res) => {
   try {
     const post = await Post.findById(req.params.id)
       .populate("user", "name avatar")
-      .populate({
-        path: "repostOf",
-        populate: { path: "user", select: "name avatar" }
-      });
+      .populate("comments.user", "name avatar");
 
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
@@ -175,7 +166,7 @@ router.get("/reported",
     try {
       const posts = await Post.find({ "reports.0": { $exists: true } })
         .populate("user", "name")
-        .populate("reports", "name");
+        .populate("reports.user", "name avatar");
       res.json(posts);
     } catch (error) {
       res.status(500).json({ message: error.message });
@@ -277,16 +268,49 @@ router.post("/comment/:id", authMiddleware, async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 });
+const User = require("../models/User");
+const sendEmail = require("../utils/sendEmail");
+
 router.put("/report/:id", authMiddleware, roleMiddleware(["student"]), async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id);
+    const { reason, details } = req.body;
+    const post = await Post.findById(req.params.id).populate("user", "name email");
 
     if (!post) return res.status(404).json({ message: "Post not found" });
 
-    // Fix: Convert ObjectIds to strings for accurate includes comparison
-    if (!post.reports.map(id => id.toString()).includes(req.user.id)) {
-      post.reports.push(req.user.id);
+    // Handle old schema (ObjectID) or new schema ({ user: ObjectID }) gracefully
+    const hasReported = post.reports.find(r => 
+      (r.user && r.user.toString() === req.user.id) || (r.toString() === req.user.id)
+    );
+
+    if (!hasReported) {
+      post.reports.push({
+        user: req.user.id,
+        reason: reason || 'Inappropriate',
+        details: details || ''
+      });
       await post.save();
+
+      // Check if reports reach the threshold for review
+      if (post.reports.length === 3) {
+        // Fetch all moderators
+        const moderators = await User.find({ role: "moderator" });
+        const modEmails = moderators.map(m => m.email).join(",");
+        
+        if (modEmails) {
+          const message = `A post by ${post.user.name} has been reported by 3 different users.\n\nPlease log in to the UniVerse Mod Dashboard to review this post.\n\nPost Content:\n${post.content}`;
+          try {
+            await sendEmail({
+              email: modEmails,
+              subject: "Alert: Heavily Reported Post on UniVerse",
+              message
+            });
+            console.log("Alert email sent to moderators");
+          } catch(e) {
+            console.log("Failed to send moderation alert email", e);
+          }
+        }
+      }
     }
 
     res.json({ message: "Post reported." });

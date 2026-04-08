@@ -34,18 +34,24 @@ const postSchema = new mongoose.Schema({
   ],
   reports: [
     {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User"
+      user: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
+      },
+      reason: {
+        type: String,
+        default: "Inappropriate"
+      },
+      details: String,
+      createdAt: {
+        type: Date,
+        default: Date.now
+      }
     }
   ],
   isApproved: {
     type: Boolean,
     default: true
-  },
-  repostOf: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Post",
-    default: null
   }
 }, { timestamps: true });
 

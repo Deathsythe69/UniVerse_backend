@@ -27,6 +27,7 @@ const userRoutes = require("./routes/user");
 const storyRoutes = require("./routes/story");
 const messageRoutes = require("./routes/message");
 const eventRoutes = require("./routes/event");
+const adminRoutes = require("./routes/admin");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/posts", postRoutes);
@@ -34,6 +35,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/stories", storyRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/events", eventRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.get("/", (req, res) => {
   res.send("UniVerse API is running with Socket.io...");
@@ -54,15 +56,27 @@ io.on("connection", (socket) => {
     io.emit("getUsers", Object.keys(users));
   });
 
-  socket.on("sendMessage", ({ senderId, receiverId, text, conversationId }) => {
+  socket.on("sendMessage", ({ senderId, receiverId, text, conversationId, messageId }) => {
     const userSocket = users[receiverId];
     if (userSocket) {
       io.to(userSocket).emit("getMessage", {
+        _id: messageId,
         sender: senderId,
         text,
+        status: "delivered", // Immediately ping as delivered
         conversationId,
         createdAt: new Date()
       });
+      // Ping sender back that message was delivered
+      const senderSocket = users[senderId];
+      if (senderSocket) io.to(senderSocket).emit("messageStatusUpdate", { messageId, status: "delivered" });
+    }
+  });
+
+  socket.on("updateMessageStatus", ({ senderId, receiverId, messageId, status }) => {
+    const senderSocket = users[senderId];
+    if (senderSocket) {
+      io.to(senderSocket).emit("messageStatusUpdate", { messageId, status });
     }
   });
 
@@ -86,6 +100,16 @@ cron.schedule("0 * * * *", async () => {
   await Story.deleteMany({ expiresAt: { $lt: new Date() } });
   console.log("Expired stories deleted");
 });
+
+// Register the cron job for BPUT auto scraping every 6 hours
+const scrapeBPUT = require("./utils/scraper");
+cron.schedule("0 */6 * * *", async () => {
+  console.log("Fetching BPUT events...");
+  await scrapeBPUT();
+});
+
+// We can immediately call it once just for testing if needed
+// scrapeBPUT();
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {

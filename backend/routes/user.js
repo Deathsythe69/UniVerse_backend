@@ -1,8 +1,25 @@
 const express = require("express");
 const User = require("../models/User");
+const Post = require("../models/Post");
 const authMiddleware = require("../middleware/authMiddleware");
 
 const router = express.Router();
+
+// GET USER PROFILE
+router.get("/:id", authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select("-password -otp -resetPasswordToken");
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const posts = await Post.find({ user: user._id, isApproved: true })
+      .populate("user", "name avatar")
+      .sort({ createdAt: -1 });
+
+    res.json({ user, posts });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 // FOLLOW / UNFOLLOW USER
 router.put("/follow/:id", authMiddleware, async (req, res) => {
@@ -29,7 +46,30 @@ router.put("/follow/:id", authMiddleware, async (req, res) => {
   }
 });
 
-// SEARCH USERS
+// FOLLOW / UNFOLLOW USER
+// (Unchanged code above)
+
+// BLOCK / UNBLOCK USER
+router.put("/block/:id", authMiddleware, async (req, res) => {
+  if (req.user.id === req.params.id) {
+    return res.status(400).json({ message: "You cannot block yourself" });
+  }
+  try {
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) return res.status(404).json({ message: "User not found" });
+
+    // Check if already blocked
+    if (!currentUser.blockedUsers.includes(req.params.id)) {
+      await currentUser.updateOne({ $push: { blockedUsers: req.params.id } });
+      res.json({ message: "User blocked", isBlocked: true });
+    } else {
+      await currentUser.updateOne({ $pull: { blockedUsers: req.params.id } });
+      res.json({ message: "User unblocked", isBlocked: false });
+    }
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 router.get("/search", authMiddleware, async (req, res) => {
   try {
     const { q } = req.query;
