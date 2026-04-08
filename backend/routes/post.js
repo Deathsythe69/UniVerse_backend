@@ -69,6 +69,29 @@ router.get("/leaderboard", authMiddleware, async (req, res) => {
   }
 });
 
+// 1.8️⃣ Search Posts
+router.get("/search", authMiddleware, async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q) return res.json([]);
+
+    const posts = await Post.find({
+      isApproved: true,
+      content: { $regex: q, $options: "i" } // Case-insensitive search on content
+    })
+      .populate("user", "name avatar")
+      .populate({
+        path: "repostOf",
+        populate: { path: "user", select: "name avatar" }
+      })
+      .sort({ createdAt: -1 });
+
+    res.json(posts);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // 2️⃣ Get Approved Posts (Public Feed)
 router.get("/", authMiddleware, async (req, res) => {
   try {
