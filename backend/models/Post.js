@@ -8,7 +8,7 @@ const postSchema = new mongoose.Schema({
   },
   content: {
     type: String,
-    required: true
+    default: ""
   },
   image: {
     type: String
@@ -40,7 +40,12 @@ const postSchema = new mongoose.Schema({
   ],
   isApproved: {
     type: Boolean,
-    default: false
+    default: true
+  },
+  repostOf: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Post",
+    default: null
   }
 }, { timestamps: true });
 

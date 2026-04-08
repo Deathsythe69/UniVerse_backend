@@ -12,12 +12,46 @@ const userSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: true
+    required: false // Not required if signing up via Google
   },
   role: {
     type: String,
-    enum: ["student", "moderator", "supervisor"],
+    enum: ["student", "moderator", "admin"],
     default: "student"
+  },
+  bio: {
+    type: String,
+    default: ""
+  },
+  avatar: {
+    type: String,
+    default: ""
+  },
+  followers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  following: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  googleId: {
+    type: String,
+    default: null
+  },
+  isEmailVerified: {
+    type: Boolean,
+    default: false
+  },
+  otp: {
+    type: String,
+    default: null
+  },
+  otpExpiry: {
+    type: Date,
+    default: null
+  },
+  resetPasswordToken: {
+    type: String,
+    default: null
+  },
+  resetPasswordExpiry: {
+    type: Date,
+    default: null
   }
 }, { timestamps: true });
 

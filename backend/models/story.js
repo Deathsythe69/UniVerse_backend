@@ -3,9 +3,17 @@ const mongoose = require("mongoose");
 const storySchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "User"
+    ref: "User",
+    required: true
   },
-  content: String,
+  content: {
+    type: String,
+    default: ""
+  },
+  image: {
+    type: String,
+    required: true
+  },
   expiresAt: {
     type: Date,
     required: true
