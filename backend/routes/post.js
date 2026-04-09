@@ -196,20 +196,28 @@ router.put("/dismiss-reports/:id",
 );
 
 
-// 4️⃣ Reject/Delete Post (Moderator or Supervisor)
-router.delete("/:id",
-  authMiddleware,
-  roleMiddleware(["moderator", "supervisor"]),
-  async (req, res) => {
-    try {
-      await Post.findByIdAndDelete(req.params.id);
-      res.json({ message: "Post deleted." });
-
-    } catch (error) {
-      res.status(500).json({ message: error.message });
+// 4️⃣ Reject/Delete Post (Author, Moderator or Supervisor)
+router.delete("/:id", authMiddleware, async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
     }
+
+    const isAuthor = post.user && post.user.toString() === req.user.id;
+    const isModOrSupervisor = req.user.role && ["moderator", "supervisor"].includes(req.user.role);
+
+    if (!isAuthor && !isModOrSupervisor) {
+      return res.status(403).json({ message: "Unauthorized to delete this post" });
+    }
+
+    await Post.findByIdAndDelete(req.params.id);
+    res.json({ message: "Post deleted." });
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
-);
+});
 
 
 router.put("/like/:id", authMiddleware, async (req, res) => {
