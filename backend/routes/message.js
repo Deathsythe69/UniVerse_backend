@@ -26,9 +26,13 @@ router.post("/conversation", authMiddleware, async (req, res) => {
       
       const isMutual = receiver.following.includes(senderId) && sender.following.includes(receiverId);
       
+      if (!isMutual) {
+        return res.status(403).json({ message: "You can only message mutually followed users." });
+      }
+      
       conversation = new Conversation({
         members: [senderId, receiverId],
-        isRequest: !isMutual
+        isRequest: false
       });
       await conversation.save();
     } else {
