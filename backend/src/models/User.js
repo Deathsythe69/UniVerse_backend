@@ -57,6 +57,14 @@ const userSchema = new mongoose.Schema({
   isBlacklisted: {
     type: Boolean,
     default: false
+  },
+  loginOtp: {
+    type: String,
+    default: null
+  },
+  loginOtpExpiry: {
+    type: Date,
+    default: null
   }
 }, { timestamps: true });
 

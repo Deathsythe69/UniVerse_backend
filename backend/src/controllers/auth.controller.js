@@ -41,7 +41,9 @@ exports.register = async (req, res) => {
       await sendEmail({
         email: pendingUser.email,
         subject: "Verify Your Email - UniVerse",
-        message: `Your One-Time Password (OTP) for UniVerse registration is: ${otp}\nThis OTP is valid for 10 minutes.`
+        message: `Your One-Time Password (OTP) for UniVerse registration is: ${otp}\nThis OTP is valid for 10 minutes.`,
+        otp: otp,
+        purpose: "registration"
       });
     } catch(err) {
       console.log("OTP Email failed", err);
@@ -53,6 +55,11 @@ exports.register = async (req, res) => {
   }
 };
 
+/**
+ * Login with OTP verification.
+ * Step 1: Validate credentials → generate OTP → send via Celery → return otpRequired: true
+ * Step 2: Frontend sends email + otp to /verify-login-otp → returns JWT
+ */
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -63,6 +70,55 @@ exports.login = async (req, res) => {
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
+
+    // Generate login OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    user.loginOtp = otp;
+    user.loginOtpExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes
+    await user.save();
+
+    // Send OTP via Celery (or Nodemailer fallback)
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: "Login Verification OTP - UniVerse",
+        message: `Your login OTP is: ${otp}\nThis OTP is valid for 10 minutes.`,
+        otp: otp,
+        purpose: "login"
+      });
+    } catch (err) {
+      console.log("Login OTP email failed:", err);
+    }
+
+    res.json({ 
+      otpRequired: true,
+      message: "Login OTP sent to your email. Please verify to continue." 
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * Verify login OTP and issue JWT.
+ */
+exports.verifyLoginOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    const user = await User.findOne({ email });
+
+    if (!user) return res.status(400).json({ message: "Invalid credentials" });
+    if (!user.loginOtp || user.loginOtp !== otp) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+    if (user.loginOtpExpiry < Date.now()) {
+      return res.status(400).json({ message: "OTP has expired. Please login again." });
+    }
+
+    // Clear OTP fields
+    user.loginOtp = undefined;
+    user.loginOtpExpiry = undefined;
+    await user.save();
 
     const token = generateToken(user._id, user.role);
 
@@ -133,7 +189,12 @@ exports.forgotPassword = async (req, res) => {
     const message = `You requested a password reset.\n\nPlease go to this link to reset your password:\n${resetUrl}`;
 
     try {
-      await sendEmail({ email: user.email, subject: "Password Reset Token - UniVerse", message });
+      await sendEmail({ 
+        email: user.email, 
+        subject: "Password Reset Token - UniVerse", 
+        message,
+        resetUrl: resetUrl
+      });
       res.json({ message: "Email sent" });
     } catch (error) {
       user.resetPasswordToken = null;
@@ -168,7 +229,7 @@ exports.resetPassword = async (req, res) => {
 
 exports.getProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select("-password -otp -resetPasswordToken");
+    const user = await User.findById(req.user.id).select("-password -otp -resetPasswordToken -loginOtp -loginOtpExpiry");
     if (!user) return res.status(404).json({ message: "User not found" });
     res.json({ user });
   } catch (error) {
