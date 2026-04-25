@@ -11,13 +11,16 @@ router.get("/search", authMiddleware, async (req, res) => {
     const { q } = req.query;
     if (!q) return res.json([]);
     
-    // Case-insensitive regex search on name or role
+    // Case-insensitive regex search across all profile fields
     const users = await User.find({
       $or: [
         { name: { $regex: q, $options: "i" } },
-        { role: { $regex: q, $options: "i" } }
+        { role: { $regex: q, $options: "i" } },
+        { department: { $regex: q, $options: "i" } },
+        { year: { $regex: q, $options: "i" } },
+        { email: { $regex: q, $options: "i" } }
       ]
-    }).select("-password -otp -resetPasswordToken");
+    }).select("-password -otp -resetPasswordToken -loginOtp -loginOtpExpiry");
     
     res.json(users);
   } catch (error) {

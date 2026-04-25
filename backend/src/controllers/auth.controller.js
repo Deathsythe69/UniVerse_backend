@@ -239,12 +239,22 @@ exports.getProfile = async (req, res) => {
 
 exports.updateProfile = async (req, res) => {
   try {
-    const { name, bio } = req.body;
+    const { name, bio, department, year, phone, socialLinks } = req.body;
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
     if (name) user.name = name;
     if (bio !== undefined) user.bio = bio;
+    if (department !== undefined) user.department = department;
+    if (year !== undefined) user.year = year;
+    if (phone !== undefined) user.phone = phone;
+    if (socialLinks) {
+      // Parse socialLinks if it's a string (from FormData)
+      const links = typeof socialLinks === 'string' ? JSON.parse(socialLinks) : socialLinks;
+      if (links.github !== undefined) user.socialLinks.github = links.github;
+      if (links.linkedin !== undefined) user.socialLinks.linkedin = links.linkedin;
+      if (links.twitter !== undefined) user.socialLinks.twitter = links.twitter;
+    }
     
     if (req.file) {
       user.avatar = `/uploads/${req.file.filename}`; // Future Cloudinary transition point
@@ -256,7 +266,11 @@ exports.updateProfile = async (req, res) => {
     
     res.json({ 
       message: "Profile updated successfully", 
-      user: { id: user._id, name: user.name, role: user.role, bio: user.bio, avatar: user.avatar } 
+      user: { 
+        id: user._id, name: user.name, role: user.role, bio: user.bio, avatar: user.avatar,
+        department: user.department, year: user.year, phone: user.phone,
+        socialLinks: user.socialLinks
+      } 
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

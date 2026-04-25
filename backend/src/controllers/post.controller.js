@@ -181,9 +181,12 @@ exports.reportPost = async (req, res) => {
 
     if (!hasReported) {
       post.reports.push({ user: req.user.id, reason: reason || 'Inappropriate', details: details || '' });
+      if (post.reports.length >= 3) {
+        post.isApproved = false;
+      }
       await post.save();
 
-      if (post.reports.length === 3) {
+      if (post.reports.length >= 3) {
         const moderators = await User.find({ role: "moderator" });
         const modEmails = moderators.map(m => m.email).join(",");
         
